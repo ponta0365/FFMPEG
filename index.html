@@ -2,143 +2,115 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>ブラウザで動画圧縮（ffmpeg.wasm）</title>
+  <title>FFmpegバッチ生成ツール</title>
   <style>
-    #dropzone {
-      width: 100%;
+    body {
+      font-family: sans-serif;
+      max-width: 600px;
+      margin: 40px auto;
       padding: 20px;
-      border: 2px dashed #ccc;
-      text-align: center;
-      margin-bottom: 10px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
     }
-    progress {
+    label, select, input, textarea, button {
+      display: block;
+      margin-top: 10px;
       width: 100%;
-      height: 20px;
+    }
+    textarea {
+      height: 150px;
+    }
+    #dropzone {
+      border: 2px dashed #ccc;
+      padding: 20px;
+      text-align: center;
+      color: #666;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
-  <h2>ブラウザだけで動画圧縮（ffmpeg.wasm）</h2>
-  <label for="preset">圧縮プリセット：</label>
+  <h2>FFmpegバッチ生成ツール</h2>
+
+  <div id="dropzone">ここに動画ファイルをドラッグ＆ドロップ</div>
+
+  <label for="inputFile">対象ファイルパス</label>
+  <input type="text" id="inputFile" placeholder="ドラッグで自動入力されます">
+
+  <label for="preset">プリセットを選択</label>
   <select id="preset">
-    <option value="x264">高品質（x264）</option>
-    <option value="amf">標準圧縮（VP8/AMF代用）</option>
-    <option value="svt">高圧縮（VP9/SVT代用）</option>
+    <option value="x264">高品質（x264soft_crf23_10bit対応）</option>
+    <option value="amf">標準圧縮（av1_amf_qp35_10bit対応）</option>
+    <option value="svt">高圧縮（SVTAV1_crf35_10bit対応）</option>
   </select>
-  <br><br>
-  <div id="dropzone">ここに動画ファイルをドラッグ＆ドロップ または 参照から選択</div>
-  <input type="file" id="video" accept="video/*">
-  <button id="startBtn">圧縮開始</button>
-  <br><br>
-  <progress id="progress" value="0" max="100"></progress>
-  <pre id="log">ステータス表示欄</pre>
 
-  <script type="module">
-    import { createFFmpeg } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/dist/ffmpeg.min.mjs';
+  <label for="outputFile">出力ファイル名（省略時は元のファイル名と同じ）</label>
+  <input type="text" id="outputFile" placeholder="例: output.mp4">
 
-    const ffmpeg = createFFmpeg({ log: true });
-    let selectedFile = null;
+  <button onclick="generateBat()">BATファイル用テキスト生成</button>
 
-    async function fetchFile(file) {
-      return new Uint8Array(await file.arrayBuffer());
-    }
+  <label for="batOutput">生成されたバッチテキスト</label>
+  <textarea id="batOutput" readonly></textarea>
 
-    async function runFFmpeg(file, preset) {
-      const log = document.getElementById('log');
-      const progressBar = document.getElementById('progress');
-      log.textContent = '準備中...';
-      progressBar.value = 0;
+  <script>
+    const dropzone = document.getElementById('dropzone');
+    const inputField = document.getElementById('inputFile');
+    const outputField = document.getElementById('outputFile');
 
-      if (!ffmpeg.isLoaded()) {
-        log.textContent = 'FFmpegをロード中...';
-        await ffmpeg.load();
+    dropzone.addEventListener('dragover', e => {
+      e.preventDefault();
+      dropzone.style.borderColor = '#00f';
+    });
+
+    dropzone.addEventListener('dragleave', e => {
+      e.preventDefault();
+      dropzone.style.borderColor = '#ccc';
+    });
+
+    dropzone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropzone.style.borderColor = '#ccc';
+      const file = e.dataTransfer.files[0];
+      if (file) {
+        inputField.value = file.path || file.name;
+        const baseName = file.name.substring(0, file.name.lastIndexOf('.'));
+        const ext = file.name.substring(file.name.lastIndexOf('.'));
+        outputField.placeholder = baseName + '_converted' + ext;
       }
+    });
 
-      log.textContent = 'ファイル読み込み中...';
-      const fetched = await fetchFile(file);
-      ffmpeg.FS('writeFile', 'input.mp4', fetched);
-
-      let command;
-      let outputName;
-      switch (preset) {
-        case 'x264':
-          command = ['-i', 'input.mp4', '-c:v', 'libx264', '-preset', 'slow', '-crf', '23', '-pix_fmt', 'yuv420p10le', '-c:a', 'aac', '-ar', '44100', '-b:a', '128k', 'output.mp4'];
-          outputName = 'output.mp4';
-          break;
-        case 'amf':
-          command = ['-i', 'input.mp4', '-c:v', 'libvpx', '-b:v', '1M', '-c:a', 'libvorbis', 'output.webm'];
-          outputName = 'output.webm';
-          break;
-        case 'svt':
-          command = ['-i', 'input.mp4', '-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-c:a', 'libopus', 'output.webm'];
-          outputName = 'output.webm';
-          break;
-        default:
-          alert('不明なプリセットです');
-          return;
-      }
-
-      log.textContent = '圧縮中...（お待ちください）';
-      ffmpeg.setProgress(({ ratio }) => {
-        progressBar.value = Math.floor(ratio * 100);
-      });
-
-      await ffmpeg.run(...command);
-      progressBar.value = 100;
-
-      log.textContent = '出力ファイル生成中...';
-      const data = ffmpeg.FS('readFile', outputName);
-      const blob = new Blob([data.buffer], { type: outputName.endsWith('.mp4') ? 'video/mp4' : 'video/webm' });
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = outputName;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-
-      log.textContent = '完了しました！保存ダイアログが表示されました。';
-    }
-
-    function handleFile() {
+    function generateBat() {
+      const input = inputField.value.trim();
+      let output = outputField.value.trim();
       const preset = document.getElementById('preset').value;
-      if (!selectedFile) {
-        alert('ファイルを選択またはドラッグしてください');
+      const outputBox = document.getElementById('batOutput');
+
+      if (!input) {
+        alert('入力ファイルパスを指定してください');
         return;
       }
-      runFFmpeg(selectedFile, preset);
+
+      if (!output) {
+        const dot = input.lastIndexOf('.');
+        output = input.substring(0, dot) + '_converted' + input.substring(dot);
+      }
+
+      let command = `ffmpeg -i "${input}" `;
+      switch (preset) {
+        case 'x264':
+          command += '-c:v libx264 -preset slow -crf 23 -pix_fmt yuv420p10le -c:a aac -ar 44100 -b:a 128k';
+          break;
+        case 'amf':
+          command += '-c:v av1_amf -usage transcoding -qp 35 -pix_fmt p010le -c:a aac -ar 44100 -b:a 128k';
+          break;
+        case 'svt':
+          command += '-c:v libsvtav1 -preset 8 -crf 35 -af loudnorm=I=-16:TP=-1.5:LRA=11 -c:a aac -ar 44100 -b:a 128k -color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv -pix_fmt yuv420p';
+          break;
+      }
+      command += ` "${output}"`;
+
+      outputBox.value = command;
     }
-
-    window.addEventListener('DOMContentLoaded', () => {
-      const dropzone = document.getElementById('dropzone');
-      const fileInput = document.getElementById('video');
-      const startBtn = document.getElementById('startBtn');
-
-      dropzone.addEventListener('dragover', e => {
-        e.preventDefault();
-        dropzone.style.borderColor = '#00f';
-      });
-      dropzone.addEventListener('dragleave', e => {
-        e.preventDefault();
-        dropzone.style.borderColor = '#ccc';
-      });
-      dropzone.addEventListener('drop', e => {
-        e.preventDefault();
-        dropzone.style.borderColor = '#ccc';
-        selectedFile = e.dataTransfer.files[0];
-        fileInput.files = e.dataTransfer;
-        document.getElementById('log').textContent = `選択ファイル: ${selectedFile.name}`;
-      });
-
-      fileInput.addEventListener('change', () => {
-        selectedFile = fileInput.files[0];
-        document.getElementById('log').textContent = `選択ファイル: ${selectedFile.name}`;
-      });
-
-      startBtn.addEventListener('click', handleFile);
-    });
   </script>
 </body>
 </html>
