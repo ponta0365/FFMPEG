@@ -1,31 +1,63 @@
-<label for="preset">圧縮プリセットを選択：</label>
-<select id="preset">
-  <option value="x264">高品質（x264）</option>
-  <option value="amf">標準圧縮（AV1/AMF）</option>
-  <option value="svt">高圧縮（SVT-AV1）</option>
-</select>
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>ブラウザで動画圧縮（ffmpeg.wasm）</title>
+  <script type="module">
+    import { createFFmpeg, fetchFile } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.2/dist/ffmpeg.min.js';
 
-<input type="file" id="fileInput">
-<button onclick="upload()">アップロードして圧縮</button>
+    const ffmpeg = createFFmpeg({ log: true });
 
-<script>
-async function upload() {
-  const file = document.getElementById('fileInput').files[0];
-  const preset = document.getElementById('preset').value;
-  const formData = new FormData();
-  formData.append('video', file);
-  formData.append('preset', preset);
+    async function runFFmpeg(file, preset) {
+      if (!ffmpeg.isLoaded()) await ffmpeg.load();
 
-  const res = await fetch('/convert', {
-    method: 'POST',
-    body: formData
-  });
+      ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(file));
 
-  const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = file.name.replace(/\.\w+$/, '_comp.mp4');
-  a.click();
-}
-</script>
+      let command;
+      switch (preset) {
+        case 'x264':
+          command = ['-i', 'input.mp4', '-c:v', 'libx264', '-preset', 'slow', '-crf', '23', '-pix_fmt', 'yuv420p10le', '-c:a', 'aac', '-ar', '44100', '-b:a', '128k', 'output.mp4'];
+          break;
+        case 'amf':
+          command = ['-i', 'input.mp4', '-c:v', 'libvpx', '-b:v', '1M', '-c:a', 'libvorbis', 'output.webm']; // 代替AMF風
+          break;
+        case 'svt':
+          command = ['-i', 'input.mp4', '-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-c:a', 'libopus', 'output.webm'];
+          break;
+        default:
+          alert('不明なプリセットです');
+          return;
+      }
+
+      await ffmpeg.run(...command);
+      const data = ffmpeg.FS('readFile', command[command.length - 1]);
+      const blob = new Blob([data.buffer], { type: 'video/mp4' });
+      const url = URL.createObjectURL(blob);
+
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = command[command.length - 1];
+      a.textContent = '圧縮済みファイルをダウンロード';
+      document.body.appendChild(a);
+    }
+
+    window.handleFile = () => {
+      const file = document.getElementById('video').files[0];
+      const preset = document.getElementById('preset').value;
+      runFFmpeg(file, preset);
+    };
+  </script>
+</head>
+<body>
+  <h2>ブラウザだけで動画圧縮（ffmpeg.wasm）</h2>
+  <label for="preset">圧縮プリセット：</label>
+  <select id="preset">
+    <option value="x264">高品質（x264）</option>
+    <option value="amf">標準圧縮（VP8/AMF代用）</option>
+    <option value="svt">高圧縮（VP9/SVT代用）</option>
+  </select>
+  <br><br>
+  <input type="file" id="video" accept="video/*">
+  <button onclick="handleFile()">圧縮開始</button>
+</body>
+</html>
