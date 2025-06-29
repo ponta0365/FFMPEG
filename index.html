@@ -3,14 +3,30 @@
 <head>
   <meta charset="UTF-8">
   <title>ブラウザで動画圧縮（ffmpeg.wasm）</title>
+  <style>
+    #dropzone {
+      width: 100%;
+      padding: 20px;
+      border: 2px dashed #ccc;
+      text-align: center;
+      margin-bottom: 10px;
+    }
+    progress {
+      width: 100%;
+      height: 20px;
+    }
+  </style>
   <script type="module">
     import { createFFmpeg, fetchFile } from 'https://unpkg.com/@ffmpeg/ffmpeg@0.12.2/dist/ffmpeg.min.js';
 
     const ffmpeg = createFFmpeg({ log: true });
+    let selectedFile = null;
 
     async function runFFmpeg(file, preset) {
       const log = document.getElementById('log');
+      const progressBar = document.getElementById('progress');
       log.textContent = '準備中...';
+      progressBar.value = 0;
 
       if (!ffmpeg.isLoaded()) {
         log.textContent = 'FFmpegをロード中...';
@@ -18,7 +34,8 @@
       }
 
       log.textContent = 'ファイル読み込み中...';
-      ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(file));
+      const fetched = await fetchFile(file);
+      ffmpeg.FS('writeFile', 'input.mp4', fetched);
 
       let command;
       let outputName;
@@ -41,7 +58,13 @@
       }
 
       log.textContent = '圧縮中...（お待ちください）';
+      let progressInterval = setInterval(() => {
+        if (progressBar.value < 95) progressBar.value += 1;
+      }, 500);
+
       await ffmpeg.run(...command);
+      clearInterval(progressInterval);
+      progressBar.value = 100;
 
       log.textContent = '出力ファイル生成中...';
       const data = ffmpeg.FS('readFile', outputName);
@@ -51,21 +74,48 @@
       const a = document.createElement('a');
       a.href = url;
       a.download = outputName;
-      a.textContent = '圧縮済みファイルをダウンロード';
+      a.style.display = 'none';
       document.body.appendChild(a);
+      a.click();
+      a.remove();
 
-      log.textContent = '完了しました！';
+      log.textContent = '完了しました！保存ダイアログが表示されました。';
     }
 
     window.handleFile = () => {
-      const file = document.getElementById('video').files[0];
       const preset = document.getElementById('preset').value;
-      if (!file) {
-        alert('ファイルを選択してください');
+      if (!selectedFile) {
+        alert('ファイルを選択またはドラッグしてください');
         return;
       }
-      runFFmpeg(file, preset);
+      runFFmpeg(selectedFile, preset);
     };
+
+    window.addEventListener('DOMContentLoaded', () => {
+      const dropzone = document.getElementById('dropzone');
+      const fileInput = document.getElementById('video');
+
+      dropzone.addEventListener('dragover', e => {
+        e.preventDefault();
+        dropzone.style.borderColor = '#00f';
+      });
+      dropzone.addEventListener('dragleave', e => {
+        e.preventDefault();
+        dropzone.style.borderColor = '#ccc';
+      });
+      dropzone.addEventListener('drop', e => {
+        e.preventDefault();
+        dropzone.style.borderColor = '#ccc';
+        selectedFile = e.dataTransfer.files[0];
+        fileInput.files = e.dataTransfer;
+        document.getElementById('log').textContent = `選択ファイル: ${selectedFile.name}`;
+      });
+
+      fileInput.addEventListener('change', e => {
+        selectedFile = fileInput.files[0];
+        document.getElementById('log').textContent = `選択ファイル: ${selectedFile.name}`;
+      });
+    });
   </script>
 </head>
 <body>
@@ -77,8 +127,11 @@
     <option value="svt">高圧縮（VP9/SVT代用）</option>
   </select>
   <br><br>
+  <div id="dropzone">ここに動画ファイルをドラッグ＆ドロップ または 参照から選択</div>
   <input type="file" id="video" accept="video/*">
   <button onclick="handleFile()">圧縮開始</button>
+  <br><br>
+  <progress id="progress" value="0" max="100"></progress>
   <pre id="log">ステータス表示欄</pre>
 </body>
 </html>
