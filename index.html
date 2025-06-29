@@ -27,21 +27,29 @@
       color: #666;
       cursor: pointer;
     }
+    .guide {
+      font-size: 0.9em;
+      color: #555;
+      margin-top: 5px;
+    }
   </style>
 </head>
 <body>
   <h2>FFmpegバッチ生成ツール</h2>
 
   <div id="dropzone">ここに動画ファイルをドラッグ＆ドロップ</div>
+  <div class="guide">※ BATファイルをこの動画と同じフォルダに保存して、ダブルクリックで実行してください。</div>
 
   <label for="inputFile">対象ファイルパス</label>
   <input type="text" id="inputFile" placeholder="ドラッグで自動入力されます">
 
   <label for="preset">プリセットを選択</label>
   <select id="preset">
-    <option value="x264">高品質（x264soft_crf23_10bit対応）</option>
-    <option value="amf">標準圧縮（av1_amf_qp35_10bit対応）</option>
-    <option value="svt">高圧縮（SVTAV1_crf35_10bit対応）</option>
+    <option value="x264">高品質（x264soft_crf23_10bit対応）：画質優先で比較的高サイズ</option>
+    <option value="amf">標準圧縮（av1_amf_qp35_10bit対応）：バランス重視、AMD GPU推奨</option>
+    <option value="svt">高圧縮（SVTAV1_crf35_10bit対応）：画質維持しつつ低容量、処理時間長め</option>
+    <option value="qsv">Intel QSV（av1_qsv_qp30_10bit対応）：Intel内蔵GPU高速圧縮</option>
+    <option value="nvenc">NVIDIA AV1（av1_nvenc_cq23_10bit対応）：RTX世代GPUで高速かつ高画質</option>
   </select>
 
   <label for="outputFile">出力ファイル名（省略時は元のファイル名と同じ）</label>
@@ -70,14 +78,28 @@
     dropzone.addEventListener('drop', e => {
       e.preventDefault();
       dropzone.style.borderColor = '#ccc';
-      const file = e.dataTransfer.files[0];
-      if (file) {
-        inputField.value = file.path || file.name;
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        const file = files[0];
+        inputField.value = file.name;
         const baseName = file.name.substring(0, file.name.lastIndexOf('.'));
-        const ext = file.name.substring(file.name.lastIndexOf('.'));
-        outputField.placeholder = baseName + '_converted' + ext;
+        const ext = getExtensionByPreset(document.getElementById('preset').value);
+        outputField.placeholder = `${baseName}_converted${ext}`;
       }
     });
+
+    document.getElementById('preset').addEventListener('change', () => {
+      const inputName = inputField.value;
+      if (inputName) {
+        const baseName = inputName.substring(0, inputName.lastIndexOf('.'));
+        const ext = getExtensionByPreset(document.getElementById('preset').value);
+        outputField.placeholder = `${baseName}_converted${ext}`;
+      }
+    });
+
+    function getExtensionByPreset(preset) {
+      return preset === 'x264' ? '.mp4' : '.webm';
+    }
 
     function generateBat() {
       const input = inputField.value.trim();
@@ -92,21 +114,31 @@
 
       if (!output) {
         const dot = input.lastIndexOf('.');
-        output = input.substring(0, dot) + '_converted' + input.substring(dot);
+        const base = dot > 0 ? input.substring(0, dot) : input;
+        output = base + '_converted' + getExtensionByPreset(preset);
       }
 
       let command = `ffmpeg -i "${input}" `;
       switch (preset) {
         case 'x264':
-          command += '-c:v libx264 -preset slow -crf 23 -pix_fmt yuv420p10le -c:a aac -ar 44100 -b:a 128k';
+          command += '-c:v libx264 -preset slow -crf 23 -pix_fmt yuv420p10le';
           break;
         case 'amf':
-          command += '-c:v av1_amf -usage transcoding -qp 35 -pix_fmt p010le -c:a aac -ar 44100 -b:a 128k';
+          command += '-c:v av1_amf -usage transcoding -qp 35 -pix_fmt p010le';
           break;
         case 'svt':
-          command += '-c:v libsvtav1 -preset 8 -crf 35 -af loudnorm=I=-16:TP=-1.5:LRA=11 -c:a aac -ar 44100 -b:a 128k -color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv -pix_fmt yuv420p';
+          command += '-c:v libsvtav1 -preset 8 -crf 35';
+          break;
+        case 'qsv':
+          command += '-c:v av1_qsv -global_quality 30 -pix_fmt p010le';
+          break;
+        case 'nvenc':
+          command += '-c:v av1_nvenc -cq 23 -rc vbr -pix_fmt p010le';
           break;
       }
+
+      command += ' -af loudnorm=I=-16:TP=-1.5:LRA=11 -c:a libopus -ar 48000 -b:a 128k -vbr on';
+      command += ' -color_primaries bt709 -color_trc bt709 -colorspace bt709 -color_range tv -pix_fmt yuv420p';
       command += ` "${output}"`;
 
       outputBox.value = command;
