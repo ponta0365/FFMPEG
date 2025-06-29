@@ -9,41 +9,61 @@
     const ffmpeg = createFFmpeg({ log: true });
 
     async function runFFmpeg(file, preset) {
-      if (!ffmpeg.isLoaded()) await ffmpeg.load();
+      const log = document.getElementById('log');
+      log.textContent = '準備中...';
 
+      if (!ffmpeg.isLoaded()) {
+        log.textContent = 'FFmpegをロード中...';
+        await ffmpeg.load();
+      }
+
+      log.textContent = 'ファイル読み込み中...';
       ffmpeg.FS('writeFile', 'input.mp4', await fetchFile(file));
 
       let command;
+      let outputName;
       switch (preset) {
         case 'x264':
           command = ['-i', 'input.mp4', '-c:v', 'libx264', '-preset', 'slow', '-crf', '23', '-pix_fmt', 'yuv420p10le', '-c:a', 'aac', '-ar', '44100', '-b:a', '128k', 'output.mp4'];
+          outputName = 'output.mp4';
           break;
         case 'amf':
-          command = ['-i', 'input.mp4', '-c:v', 'libvpx', '-b:v', '1M', '-c:a', 'libvorbis', 'output.webm']; // 代替AMF風
+          command = ['-i', 'input.mp4', '-c:v', 'libvpx', '-b:v', '1M', '-c:a', 'libvorbis', 'output.webm'];
+          outputName = 'output.webm';
           break;
         case 'svt':
           command = ['-i', 'input.mp4', '-c:v', 'libvpx-vp9', '-crf', '35', '-b:v', '0', '-c:a', 'libopus', 'output.webm'];
+          outputName = 'output.webm';
           break;
         default:
           alert('不明なプリセットです');
           return;
       }
 
+      log.textContent = '圧縮中...（お待ちください）';
       await ffmpeg.run(...command);
-      const data = ffmpeg.FS('readFile', command[command.length - 1]);
-      const blob = new Blob([data.buffer], { type: 'video/mp4' });
+
+      log.textContent = '出力ファイル生成中...';
+      const data = ffmpeg.FS('readFile', outputName);
+      const blob = new Blob([data.buffer], { type: outputName.endsWith('.mp4') ? 'video/mp4' : 'video/webm' });
       const url = URL.createObjectURL(blob);
 
       const a = document.createElement('a');
       a.href = url;
-      a.download = command[command.length - 1];
+      a.download = outputName;
       a.textContent = '圧縮済みファイルをダウンロード';
       document.body.appendChild(a);
+
+      log.textContent = '完了しました！';
     }
 
     window.handleFile = () => {
       const file = document.getElementById('video').files[0];
       const preset = document.getElementById('preset').value;
+      if (!file) {
+        alert('ファイルを選択してください');
+        return;
+      }
       runFFmpeg(file, preset);
     };
   </script>
@@ -59,5 +79,6 @@
   <br><br>
   <input type="file" id="video" accept="video/*">
   <button onclick="handleFile()">圧縮開始</button>
+  <pre id="log">ステータス表示欄</pre>
 </body>
 </html>
