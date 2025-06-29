@@ -17,7 +17,7 @@
     }
   </style>
   <script type="module">
-    import { createFFmpeg, fetchFile } from "https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.6/+esm";
+    import { createFFmpeg, fetchFile } from 'https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.15/+esm';
 
     const ffmpeg = createFFmpeg({ log: true });
     let selectedFile = null;
@@ -58,12 +58,11 @@
       }
 
       log.textContent = '圧縮中...（お待ちください）';
-      let progressInterval = setInterval(() => {
-        if (progressBar.value < 95) progressBar.value += 1;
-      }, 500);
+      ffmpeg.setProgress(({ ratio }) => {
+        progressBar.value = Math.floor(ratio * 100);
+      });
 
       await ffmpeg.run(...command);
-      clearInterval(progressInterval);
       progressBar.value = 100;
 
       log.textContent = '出力ファイル生成中...';
